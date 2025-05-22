@@ -4,6 +4,7 @@ import schedule
 import time
 import threading
 import webbrowser
+import subprocess
 from datetime import datetime, timedelta
 
 # ---- SETUP GIAO DIỆN ----
@@ -37,11 +38,26 @@ def refresh_listbox():
         listbox_msgs.insert("end", f"{i+1:02d}. {line}\n")
     listbox_msgs.configure(state="disabled")
 
-def send_message(msg, key):
+def close_chrome():
+    try:
+        # Đóng chrome (trên Windows)
+        subprocess.run("taskkill /IM chrome.exe /F", shell=True)
+        add_log("Đã đóng Chrome.", "#e04b4a")
+    except Exception as e:
+        add_log(f"Lỗi đóng Chrome: {e}", "#e04b4a")
+
+def send_message(msg, key, open_tab=False, force_restart=False):
     global global_url
-    webbrowser.open(global_url)
-    add_log("Đã mở lại tab Messenger, chờ 5 giây để load...", "#0084FF")
-    time.sleep(5)
+    if force_restart:
+        close_chrome()
+        time.sleep(2)  # Đợi Chrome đóng hoàn toàn
+        webbrowser.open(global_url)
+        add_log("Đã mở lại tab Messenger, chờ 5 giây để load...", "#0084FF")
+        time.sleep(5)
+    elif open_tab:
+        webbrowser.open(global_url)
+        add_log("Đã mở tab Messenger, chờ 5 giây để load...", "#0084FF")
+        time.sleep(5)
     # Click vào giữa màn hình để Messenger tự động focus khung nhập
     width, height = pyautogui.size()
     pyautogui.click(width//2, height//2)
@@ -55,12 +71,12 @@ def send_message(msg, key):
     pyautogui.press("enter")
     add_log(f"Đã gửi: {msg}", "#1cae3e")
 
-def set_clipboard_and_send(msg, key):
+def set_clipboard_and_send(msg, key, open_tab=False, force_restart=False):
     app.clipboard_clear()
     app.clipboard_append(msg)
     app.update()
     add_log(f"Chuẩn bị gửi: {msg}", "#0078d7")
-    send_message(msg, key)
+    send_message(msg, key, open_tab=open_tab, force_restart=force_restart)
 
 def run_schedule():
     while True:
@@ -98,6 +114,7 @@ def on_schedule():
         add_log("Chưa nhập URL hoặc chưa có tin nhắn!", "#e04b4a")
         return
     ok_schedule = 0
+    first = True
     for line in scheduled_msgs:
         if "|" not in line:
             continue
@@ -110,7 +127,12 @@ def on_schedule():
             if send_time < now:
                 send_time += timedelta(days=1)
             send_time_only = send_time.time()
-            schedule.every().day.at(send_time_only.strftime("%H:%M:%S")).do(set_clipboard_and_send, msg=msg, key=f"{time_part}|{msg}")
+            # Lần đầu chỉ mở tab, lần sau thì force restart chrome
+            schedule.every().day.at(send_time_only.strftime("%H:%M:%S")).do(
+                set_clipboard_and_send, msg=msg, key=f"{time_part}|{msg}",
+                open_tab=first, force_restart=(not first)
+            )
+            first = False
             add_log(f"Đã lên lịch: {line} (gửi lúc {send_time_only.strftime('%H:%M:%S')})", "#0078d7")
             ok_schedule += 1
         except Exception as e:
